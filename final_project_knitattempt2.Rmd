@@ -1,0 +1,399 @@
+---
+title: "final_project_knitattempt2"
+author: "jenny"
+output: 
+  pdf_document: default
+  html_document: default
+date: "2025-05-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+library(tidyverse)
+library(knitr)
+library(stargazer)
+library(modelsummary)
+library(haven)
+library(gridExtra)
+library(performance)
+library(marginaleffects)
+library(MASS)
+library(nnet)
+library(pscl)
+library(rstanarm)
+library(dplyr)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r loading}
+#Import my HINTS6 data
+hints6_public <- read_sav("//Users/jennymai/Desktop/SOC542/Final Project/hints6_public.sav")
+```
+
+## Data Cleaning
+
+```{r cleaning, echo=FALSE}
+#Select variables to make a new data frame
+data <- hints6_public %>%
+  dplyr::select(
+    EverHadCancer,
+    #independent variable (PCC)
+    ChanceAskQuestions, 
+    InvolvedDecisions, 
+    ExplainedClearly, 
+    UnderstoodNextSteps,
+    FeelingsAddressed, 
+    SpentEnoughTime,
+    HelpUncertainty,
+    #mediator variable
+    CancerTrustDoctor,
+    #dependent variable
+    GeneralHealth,
+    #control variables
+    Age,
+    RaceEthn,
+    BirthGender,
+    Education)
+
+#Cleaning the data to remove all missing observations
+clean_data <- data %>%
+  mutate(
+    ChanceAskQuestions = na_if(ChanceAskQuestions, -9),
+    ChanceAskQuestions = na_if(ChanceAskQuestions, -7),
+    ChanceAskQuestions = na_if(ChanceAskQuestions, -5),
+    ChanceAskQuestions = na_if(ChanceAskQuestions, -2),
+    ChanceAskQuestions = na_if(ChanceAskQuestions, -1),
+
+    InvolvedDecisions = na_if(InvolvedDecisions, -9),
+    InvolvedDecisions = na_if(InvolvedDecisions, -7),
+    InvolvedDecisions = na_if(InvolvedDecisions, -5),
+    InvolvedDecisions = na_if(InvolvedDecisions, -2),
+    InvolvedDecisions = na_if(InvolvedDecisions, -1),
+
+    ExplainedClearly = na_if(ExplainedClearly, -9),
+    ExplainedClearly = na_if(ExplainedClearly, -7),
+    ExplainedClearly = na_if(ExplainedClearly, -2),
+    ExplainedClearly = na_if(ExplainedClearly, -1),
+
+    UnderstoodNextSteps = na_if(UnderstoodNextSteps, -9),
+    UnderstoodNextSteps = na_if(UnderstoodNextSteps, -7),
+    UnderstoodNextSteps = na_if(UnderstoodNextSteps, -5),
+    UnderstoodNextSteps = na_if(UnderstoodNextSteps, -2),
+    UnderstoodNextSteps = na_if(UnderstoodNextSteps, -1),
+
+    FeelingsAddressed = na_if(FeelingsAddressed, -9),
+    FeelingsAddressed = na_if(FeelingsAddressed, -7),
+    FeelingsAddressed = na_if(FeelingsAddressed, -2),
+    FeelingsAddressed = na_if(FeelingsAddressed, -1),
+
+    SpentEnoughTime = na_if(SpentEnoughTime, -9),
+    SpentEnoughTime = na_if(SpentEnoughTime, -7),
+    SpentEnoughTime = na_if(SpentEnoughTime, -2),
+    SpentEnoughTime = na_if(SpentEnoughTime, -1),
+
+    HelpUncertainty = na_if(HelpUncertainty, -9),
+    HelpUncertainty = na_if(HelpUncertainty, -7),
+    HelpUncertainty = na_if(HelpUncertainty, -5),
+    HelpUncertainty = na_if(HelpUncertainty, -2),
+    HelpUncertainty = na_if(HelpUncertainty, -1),
+
+    CancerTrustDoctor = na_if(CancerTrustDoctor, -9),
+    CancerTrustDoctor = na_if(CancerTrustDoctor, -5),
+
+    GeneralHealth = na_if(GeneralHealth, -9),
+    GeneralHealth = na_if(GeneralHealth, -5),
+    
+    Age = na_if(Age, -9),
+    Age = na_if(Age, -4),
+
+    RaceEthn = na_if(RaceEthn, -9),
+    RaceEthn = na_if(RaceEthn, -7),
+    RaceEthn = factor(RaceEthn,
+                      levels = c(1, 2, 3, 4, 5, 6, 7),
+                      labels = c("Hispanic",
+                                 "Non-Hispanic White",
+                                 "Black or African American",
+                                 "American Indian or Alaska Native",
+                                 "Asian",
+                                 "Native Hawaiian or other Pacific Islander",
+                                 "Multiple Races")),
+
+    BirthGender = case_when(
+      BirthGender == 1 ~ "Male",
+      BirthGender == 2 ~ "Female",
+      BirthGender %in% c(-9,-7,-5) ~ NA_character_
+    ), 
+
+    Education = case_when(
+      Education %in% c(1, 2, 3) ~ "High school or less",
+      Education == 4 ~ "Vocational school",
+      Education == 5 ~ "Some college",
+      Education == 6 ~ "College graduate",
+      Education == 7 ~ "Postgraduate",
+      Education %in% c(-9, -7) ~ NA_character_
+    )
+  ) %>%
+  drop_na(
+    ChanceAskQuestions, InvolvedDecisions, ExplainedClearly, UnderstoodNextSteps, FeelingsAddressed, SpentEnoughTime, HelpUncertainty, CancerTrustDoctor, GeneralHealth, Age, RaceEthn, BirthGender, Education
+  )
+
+#Filter data for ONLY cancer patients (n = 737)
+cancer_data <- clean_data %>%
+  filter(EverHadCancer == 1)
+
+#Reverse code my IV, mediator variable, and DV (n = 737)
+reverse_code <- function(x, max_val) {
+  return((max_val + 1) - x)
+}
+cancer_data_reverse <- cancer_data %>%
+  mutate(across(
+    c(
+      ChanceAskQuestions, InvolvedDecisions, ExplainedClearly, UnderstoodNextSteps, FeelingsAddressed, SpentEnoughTime, HelpUncertainty, CancerTrustDoctor
+    ),
+    ~ reverse_code(as.numeric(.), 4)
+  )) %>%
+  mutate(across(
+    c(GeneralHealth),
+    ~ reverse_code(as.numeric(.), 5)
+  ))
+```
+
+```{r bivariate analyses, echo=TRUE}
+#Bivariate correlation
+library(corrplot)
+
+vars <- cancer_data_reverse %>%
+  dplyr::select(ChanceAskQuestions, InvolvedDecisions, ExplainedClearly, UnderstoodNextSteps, FeelingsAddressed, SpentEnoughTime, HelpUncertainty, CancerTrustDoctor, GeneralHealth)
+cor_matrix <- cor(vars, use = "pairwise.complete.obs")
+round(cor_matrix, 2)
+corrplot(cor_matrix, method = "circle", type = "upper", 
+         tl.col = "black", tl.srt = 45)
+
+#IV - Create PCC index (make mean score of every observation)
+cancer_data_reverse <- cancer_data_reverse %>%
+  mutate(
+    pcc_index_mean = rowMeans(dplyr::select(., ChanceAskQuestions, InvolvedDecisions, ExplainedClearly, UnderstoodNextSteps, FeelingsAddressed, SpentEnoughTime, HelpUncertainty), na.rm = TRUE)
+  )
+
+#Descriptives for the PCC index (M = 3.389)
+summary(cancer_data_reverse$pcc_index_mean) 
+
+#Histogram of the means from the PCC index -- skewed to the right
+hist(cancer_data_reverse$pcc_index_mean,
+     main = "PCC Index Distribution",
+     xlab = "PCC Mean Score", col = "pink", breaks = 20)
+
+#Cronbach's alpha (a = 0.88)
+library(psych)
+alpha(vars)
+```
+#Descriptive of demographics
+
+```{r descriptives, echo=TRUE}
+#New data frame with ONLY the PCC index variable, trust, general health, and control variables (n = 740 cancer patients)
+cancer_d_reverse_index <- cancer_data_reverse %>%
+  dplyr::select(pcc_index_mean, CancerTrustDoctor, GeneralHealth, Age, RaceEthn, BirthGender, Education)
+
+#Descriptive
+datasummary_skim(dplyr::select(cancer_d_reverse_index, 
+                               pcc_index_mean, CancerTrustDoctor, GeneralHealth,
+                               Age, RaceEthn, BirthGender, Education))
+
+```
+
+# DAG 
+
+```{r DAG models, echo=TRUE}
+library(dagitty)
+library(ggdag)
+dag_model <- dagitty('dag {
+  PCC -> trust
+  trust -> health
+  PCC -> health
+}')
+
+ggdag(dag_model, text = TRUE) +
+  ggtitle("Hypothesized Model: Patient-centered communication, Trust, and Health")
+
+#DAG 2 with control variables
+dag_model <- dagitty('dag {
+  PCC -> trust
+  trust -> health
+  PCC -> health
+  Age -> PCC
+  Sex -> PCC
+  Edu -> PCC
+  Race -> PCC
+}')
+
+ggdag(dag_model, text = TRUE) +
+  ggtitle("Hypothesized Model: PCC, Trust, Health, and Controls")
+
+#DAG 3 with control variables
+dag_model3 <- dagitty('dag {
+  PCC -> trust
+  trust -> health
+  PCC -> health
+  Age -> PCC
+  Sex -> PCC
+  Edu -> PCC
+  Race -> PCC
+  Age -> health
+  Sex -> health
+  Edu -> health
+  Race -> health
+}')
+
+ggdag(dag_model3, text = TRUE) +
+  ggtitle("Hypothesized Model: PCC, Trust, Health, and Controls")
+
+```
+
+# Correlation with PCC index
+```{r corr matrix, echo=TRUE}
+#NEW correlation matrix with the main variables after PCC becomes an index 
+vars2 <- cancer_d_reverse_index %>%
+  dplyr::select(pcc_index_mean, CancerTrustDoctor, GeneralHealth, Age)
+cor_matrix2 <- cor(vars2, use = "pairwise.complete.obs")
+round(cor_matrix2, 2)
+corrplot(cor_matrix2, 
+         method = "number",       
+         type = "upper",          
+         tl.col = "black",        
+         tl.srt = 45,    
+         number.cex = 1, 
+         col = colorRampPalette(c("yellow", "orange", "darkblue"))(200),
+         number.font = 2)
+```
+
+# OLS
+```{r OLS1, echo=TRUE}
+#PCC variable (IV) will be treated as a continuous variable. GeneralHealth (DV) is a continuous variable. An ordinary least squares (OLS) regression model is conducted to examine direct effects.
+
+#H1: PCC -> TRUST / OLS1 (with no controls)
+ols1 <- lm(CancerTrustDoctor ~ pcc_index_mean, data = cancer_d_reverse_index)
+summary(ols1)
+
+modelsummary(
+  lm(CancerTrustDoctor ~ pcc_index_mean, data = cancer_d_reverse_index),
+  statistic = "std.error",
+  stars = TRUE,
+  fmt = 2,
+  title = "PCC Predicting Trust",
+  output = "huxtable"
+)
+
+#OLS1_1 = PCC -> trust (controlling for demographics)
+#Dummy-code my control variables
+cancer_d_reverse_index <- cancer_d_reverse_index %>%
+  mutate(
+    race_white = ifelse(RaceEthn == "Non-Hispanic White", 1,
+                        ifelse(is.na(RaceEthn), NA, 0)),
+    education_college = ifelse(Education %in% c("College graduate", "Postgraduate"), 1,
+                               ifelse(is.na(Education), NA, 0))
+  )
+
+#age, gender, education doesn't do much to explain the relationship between PCC -> trust. Being White kind of does...explaining higher trust
+ols1_1 <- lm(CancerTrustDoctor ~ pcc_index_mean + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index)
+summary(ols1_1)
+
+modelsummary(
+  lm(CancerTrustDoctor ~ pcc_index_mean + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index),
+  statistic = "std.error",
+  stars = TRUE,
+  fmt = 2,
+  title = "PCC Predicting Trust",
+  output = "huxtable"
+)
+
+#given that race sort of helps to explain the relationship between PCC and trust, I am trying to compare the groups
+ols_race <- lm(CancerTrustDoctor ~ pcc_index_mean * race_white + Age + education_college + BirthGender, 
+               data = cancer_d_reverse_index)
+
+pred_data <- expand.grid(
+  pcc_index_mean = seq(min(cancer_d_reverse_index$pcc_index_mean, na.rm = TRUE),
+                       max(cancer_d_reverse_index$pcc_index_mean, na.rm = TRUE),
+                       length.out = 100),
+  race_white = c(0, 1),
+  Age = mean(cancer_d_reverse_index$Age, na.rm = TRUE),
+  education_college = 1,
+  BirthGender = "Male"
+)
+
+ci <- predict(ols_race, newdata = pred_data, interval = "confidence")
+pred_data$predicted <- ci[, "fit"]
+pred_data$ci_lower <- ci[, "lwr"]
+pred_data$ci_upper <- ci[, "upr"]
+pred_data$RaceGroup <- ifelse(pred_data$race_white == 1, "Non-Hispanic White", "Other")
+
+ggplot(pred_data, aes(x = pcc_index_mean, y = predicted, color = RaceGroup, fill = RaceGroup)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.2, color = NA) +
+  labs(
+    x = "Patient-Centered Communication (PCC Index Mean)",
+    y = "Predicted Trust in Cancer Information from Doctor",
+    title = "PCC on Predicted Trust: Comparing Non-Hispanic Whites and Other Groups"
+  ) +
+  theme_minimal()
+
+```
+
+```{r OLS2, echo=TRUE}
+#PCC variable (IV) will be treated as a continuous variable. GeneralHealth (DV) is a continuous variable. An ordinary least squares (OLS) regression model is conducted to examine direct effects.
+
+#H2: PCC -> HEALTH / OLS2
+#OLS2 = pcc -> general health (with controls)
+ols2 <- lm(GeneralHealth ~ pcc_index_mean + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index)
+summary(ols2)
+
+modelsummary(
+  lm(GeneralHealth ~ pcc_index_mean + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index),
+  statistic = "std.error",
+  stars = TRUE,
+  fmt = 2,
+  title = "PCC Predicting General Health",
+  output = "huxtable"
+)
+
+```
+
+```{r OLS3, echo=TRUE}
+#OLS4 PCC + trust -> health
+ols4 <- lm(GeneralHealth ~ pcc_index_mean + CancerTrustDoctor + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index)
+summary(ols4)
+
+modelsummary(
+  lm(GeneralHealth ~ pcc_index_mean + CancerTrustDoctor + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index),
+  statistic = "std.error",
+  stars = TRUE,
+  fmt = 2,
+  title = "PCC and Trust Predicting General Health with Controls",
+  output = "huxtable"
+)
+
+```
+
+```{r OLS4-5, echo=TRUE}
+#OLS5 PCC * trust -> health
+ols5 <- lm(GeneralHealth ~ pcc_index_mean + pcc_index_mean*CancerTrustDoctor + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index)
+summary(ols5)
+
+modelsummary(
+  lm(GeneralHealth ~ pcc_index_mean + pcc_index_mean*CancerTrustDoctor + Age + race_white + BirthGender + education_college, data = cancer_d_reverse_index),
+  statistic = "std.error",
+  stars = TRUE,
+  fmt = 2,
+  title = "Interaction of PCC x trust on Health with Controls",
+  output = "huxtable"
+)
+```
+
